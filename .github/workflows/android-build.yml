@@ -170,9 +170,13 @@ jobs:
 
       - name: Rename APK with version
         run: |
+          export LANG=en_US.UTF-8
+          export LC_ALL=en_US.UTF-8
+          APP_NAME="大冬瓜"
+          VERSION="${{ steps.version.outputs.VERSION }}"
           mv android/app/build/outputs/apk/release/app-release.apk \
-             android/app/build/outputs/apk/release/大冬瓜-${{ steps.version.outputs.VERSION }}-universal.apk || \
-          echo "APK rename skipped"
+             "android/app/build/outputs/apk/release/${APP_NAME}-${VERSION}-universal.apk"
+          ls -la android/app/build/outputs/apk/release/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
