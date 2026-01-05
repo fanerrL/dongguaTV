@@ -301,6 +301,11 @@
             background: rgba(229, 9, 20, 0.4) !important;
         }
 
+        /* 隐藏关于作者及版本号 (通常是最后两项) */
+        .dplayer-menu .dplayer-menu-item:nth-last-child(-n+2) {
+            display: none !important;
+        }
+
         /* 11. 时间显示美化 */
         .dplayer-ptime,
         .dplayer-dtime {
@@ -738,6 +743,7 @@
             background: linear-gradient(90deg, rgba(229, 9, 20, 0.6), transparent) !important;
             color: #ff6b81 !important;
             font-weight: bold !important;
+            border-left: 3px solid #e50914 !important;
         }
 
         /* 24. 加载动画自定义 */
@@ -2462,6 +2468,23 @@
                 transform: none !important;
             }
         }
+
+        /* 📱 Android Fullscreen Fixes */
+        body.dplayer-fullscreen-active {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+            overflow: hidden !important;
+        }
+
+        /* Hide all potential padding blocks in fullscreen */
+        body.dplayer-fullscreen-active div[style*="padding-top"],
+        body.dplayer-fullscreen-active div[style*="height"][class*="status"],
+        body.dplayer-fullscreen-active .safe-area-spacer {
+            display: none !important;
+            height: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
     </style>
 </head>
 
@@ -3293,6 +3316,17 @@
                         this.updateHistoryScrollNeeded();
                     }, 150);
                 }, { passive: true });
+
+                // 修复：点击任意地方关闭 DPlayer 右键菜单
+                document.addEventListener('click', (e) => {
+                    const menu = document.querySelector('.dplayer-menu');
+                    if (menu && menu.classList.contains('dplayer-menu-show')) {
+                        // 如果点击的不是菜单内部，则关闭菜单
+                        if (!menu.contains(e.target)) {
+                            menu.classList.remove('dplayer-menu-show');
+                        }
+                    }
+                });
 
                 // Store reference to app instance for external access
                 window.vueApp = this;
@@ -5000,6 +5034,71 @@
                             ]
                         });
 
+                        // 监听倍速变化，更新 UI
+                        if (dp.video) {
+                            dp.video.addEventListener('ratechange', () => {
+                                const speed = dp.video.playbackRate;
+                                // 💾 记住用户选择的倍速
+                                try { localStorage.setItem('dplayer_speed', speed); } catch (e) { }
+
+                                const dplayerContainer = document.getElementById('dplayer');
+
+                                // 1. 更新右键菜单文本
+                                const menuItems = dplayerContainer.querySelectorAll('.dplayer-menu-item a');
+                                menuItems.forEach(item => {
+                                    if (item.textContent.includes('当前速度')) {
+                                        item.textContent = `⚡ 当前速度: ${speed}x`;
+                                    }
+                                });
+
+                                // 2. 显示倍速浮层提示
+                                const indicator = dplayerContainer.querySelector('.dplayer-speed-indicator');
+                                if (indicator) {
+                                    indicator.innerText = `倍速: ${speed}x`;
+                                    indicator.classList.add('show');
+                                    clearTimeout(indicator.hideTimer);
+                                    indicator.hideTimer = setTimeout(() => {
+                                        indicator.classList.remove('show');
+                                    }, 1500);
+                                }
+
+                                // 3. 强制更新设置面板中的高亮状态
+                                const speedItems = dplayerContainer.querySelectorAll('.dplayer-setting-speed-item');
+                                speedItems.forEach(item => {
+                                    // DPlayer 的 item 包含 data-speed 属性
+                                    const itemSpeed = parseFloat(item.dataset.speed);
+                                    if (itemSpeed && Math.abs(itemSpeed - speed) < 0.01) {
+                                        item.classList.add('dplayer-setting-speed-current');
+                                    } else {
+                                        item.classList.remove('dplayer-setting-speed-current');
+                                    }
+                                });
+                            });
+                        }
+
+                        // 📱 安卓全屏优化：自动横屏 + 去除顶部遮挡
+                        dp.on('fullscreen', () => {
+                            try {
+                                if (screen.orientation && screen.orientation.lock) {
+                                    screen.orientation.lock('landscape').catch(e => console.warn('锁屏失败:', e));
+                                } else if (window.screen.lockOrientation) {
+                                    window.screen.lockOrientation('landscape');
+                                }
+                            } catch (e) { }
+                            document.body.classList.add('dplayer-fullscreen-active');
+                        });
+
+                        dp.on('fullscreen_cancel', () => {
+                            try {
+                                if (screen.orientation && screen.orientation.unlock) {
+                                    screen.orientation.unlock();
+                                } else if (window.screen.unlockOrientation) {
+                                    window.screen.unlockOrientation();
+                                }
+                            } catch (e) { }
+                            document.body.classList.remove('dplayer-fullscreen-active');
+                        });
+
                         // ========== 🔧 设置菜单修复 ==========
                         setTimeout(() => {
                             const dplayerContainer = document.getElementById('dplayer');
@@ -5015,11 +5114,206 @@
                                             // 当设置菜单打开时，禁用遮罩层的点击事件
                                             mask.style.pointerEvents = isOpen ? 'none' : 'auto';
                                             console.log('[Settings] Menu ' + (isOpen ? 'OPENED - mask disabled' : 'CLOSED - mask enabled'));
+
+                                            // 打开菜单时，强制刷新一次倍速高亮
+                                            try {
+                                                if (isOpen && typeof dp !== 'undefined' && dp && dp.video) {
+                                                    const speed = dp.video.playbackRate;
+                                                    const dplayerContainer = document.getElementById('dplayer');
+                                                    if (dplayerContainer) {
+                                                        const speedItems = dplayerContainer.querySelectorAll('.dplayer-setting-speed-item');
+                                                        speedItems.forEach(item => {
+                                                            const itemSpeed = parseFloat(item.dataset.speed);
+                                                            if (itemSpeed && Math.abs(itemSpeed - speed) < 0.01) {
+                                                                item.classList.add('dplayer-setting-speed-current');
+                                                            } else {
+                                                                item.classList.remove('dplayer-setting-speed-current');
+                                                            }
+                                                        });
+                                                    }
+                                                }
+                                            } catch (e) { console.warn('Highlight update failed:', e); }
+
+                                            // 初始化/显示跳过片头片尾 UI
+                                            if (isOpen && window.skipManager) {
+                                                window.skipManager.initUI();
+                                            }
                                         }
                                     });
                                 });
 
                                 observer.observe(settingBox, { attributes: true });
+
+                                // ========== ✨ 跳过片头片尾管理器 ==========
+                                window.skipManager = {
+                                    vue: this,
+                                    config: { intro: 0, outro: 0, enabled: false },
+                                    hasSkippedIntro: false,
+                                    hasSkippedOutro: false,
+
+                                    getKey() {
+                                        const vodName = this.vue.currentGroup?.name || 'default';
+                                        const safeName = vodName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
+                                        return `skip_config_${safeName}`;
+                                    },
+                                    load() {
+                                        try {
+                                            const saved = localStorage.getItem(this.getKey());
+                                            if (saved) this.config = JSON.parse(saved);
+                                            else this.config = { intro: 0, outro: 0, enabled: false };
+                                        } catch (e) { }
+                                        this.hasSkippedIntro = false;
+                                        this.hasSkippedOutro = false;
+                                        this.updateUI();
+                                    },
+                                    save() {
+                                        localStorage.setItem(this.getKey(), JSON.stringify(this.config));
+                                        this.updateUI();
+                                    },
+                                    formatTime(seconds) {
+                                        if (!seconds) return '点击设定';
+                                        const m = Math.floor(seconds / 60);
+                                        const s = Math.floor(seconds % 60);
+                                        return `${m}:${s.toString().padStart(2, '0')}`;
+                                    },
+                                    setIntro() {
+                                        if (!dp.video) return;
+                                        const time = Math.floor(dp.video.currentTime);
+                                        if (dp.video.duration && time > dp.video.duration * 0.5) {
+                                            dp.notice('片头时间不能超过视频时长的一半', 2000);
+                                            return;
+                                        }
+                                        this.config.intro = time;
+                                        this.config.enabled = true;
+                                        this.save();
+                                        dp.notice(`已设置片头截止点: ${this.formatTime(this.config.intro)}`);
+                                    },
+                                    setOutro() {
+                                        if (!dp.video) return;
+                                        const time = Math.floor(dp.video.currentTime);
+                                        if (dp.video.duration && time < dp.video.duration * 0.5) {
+                                            dp.notice('片尾起点通常在视频后半部分，请拖动进度条后再设置', 3000);
+                                            return;
+                                        }
+                                        if (this.config.intro > 0 && time <= this.config.intro) {
+                                            dp.notice('片尾时间必须晚于片头', 2000);
+                                            return;
+                                        }
+                                        this.config.outro = time;
+                                        this.config.enabled = true;
+                                        this.save();
+                                        dp.notice(`已设置片尾起点: ${this.formatTime(this.config.outro)}`);
+                                    },
+                                    clear() {
+                                        this.config = { intro: 0, outro: 0, enabled: false };
+                                        this.save();
+                                        dp.notice('已清除跳过配置');
+                                    },
+                                    updateUI() {
+                                        const group = document.querySelector('.dplayer-setting-skip-group');
+                                        if (!group) return;
+                                        const toggleBg = group.querySelector('.dplayer-toggle-icon');
+                                        const toggleKnob = group.querySelector('.toggle-knob');
+                                        if (toggleBg && toggleKnob) {
+                                            if (this.config.enabled) {
+                                                toggleBg.style.background = '#e50914';
+                                                toggleKnob.style.transform = 'translateX(18px)';
+                                            } else {
+                                                toggleBg.style.background = 'rgba(255,255,255,0.2)';
+                                                toggleKnob.style.transform = 'translateX(0)';
+                                            }
+                                        }
+                                        const introVal = group.querySelector('.intro-val');
+                                        if (introVal) introVal.textContent = this.formatTime(this.config.intro);
+                                        const outroVal = group.querySelector('.outro-val');
+                                        if (outroVal) outroVal.textContent = this.formatTime(this.config.outro);
+                                    },
+                                    initUI() {
+                                        const panel = document.querySelector('.dplayer-setting-origin-panel');
+                                        if (!panel || panel.querySelector('.dplayer-setting-skip-group')) {
+                                            if (panel) this.updateUI();
+                                            return;
+                                        }
+                                        const html = `
+                                            <div class="dplayer-setting-skip-group" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 5px;">
+                                                <div class="dplayer-setting-item dplayer-setting-skip-toggle" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
+                                                    <span class="dplayer-label" style="white-space: nowrap;">跳过片头片尾</span>
+                                                    <div class="dplayer-toggle-icon" style="position: relative; width: 40px; height: 22px; background: ${this.config.enabled ? '#e50914' : 'rgba(255,255,255,0.2)'}; border-radius: 20px; transition: background 0.3s; flex-shrink: 0;">
+                                                        <div class="toggle-knob" style="position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: transform 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.4); transform: translateX(${this.config.enabled ? '18px' : '0'});"></div>
+                                                    </div>
+                                                </div>
+                                                <div class="dplayer-setting-item dplayer-setting-set-intro" style="cursor: pointer; justify-content: space-between;">
+                                                    <span class="dplayer-label">设置片头</span>
+                                                    <span class="dplayer-value intro-val" style="opacity: 0.8;">${this.formatTime(this.config.intro)}</span>
+                                                </div>
+                                                <div class="dplayer-setting-item dplayer-setting-set-outro" style="cursor: pointer; justify-content: space-between;">
+                                                    <span class="dplayer-label">设置片尾</span>
+                                                    <span class="dplayer-value outro-val" style="opacity: 0.8;">${this.formatTime(this.config.outro)}</span>
+                                                </div>
+                                                 <div class="dplayer-setting-item dplayer-setting-del-config" style="cursor: pointer; color: #888; font-size: 12px; height: 32px; display: flex; align-items: center; padding: 0 10px; margin-top: 0;">
+                                                    <i class="fas fa-trash-alt" style="margin-right:8px;"></i> 清除跳过配置
+                                                </div>
+                                            </div>
+                                        `;
+                                        panel.insertAdjacentHTML('beforeend', html);
+                                        const group = panel.querySelector('.dplayer-setting-skip-group');
+                                        group.querySelector('.dplayer-setting-skip-toggle').addEventListener('click', () => {
+                                            this.config.enabled = !this.config.enabled;
+                                            this.save();
+                                            dp.notice(this.config.enabled ? '已开启跳过功能' : '已关闭跳过功能');
+                                        });
+                                        group.querySelector('.dplayer-setting-set-intro').addEventListener('click', () => this.setIntro());
+                                        group.querySelector('.dplayer-setting-set-outro').addEventListener('click', () => this.setOutro());
+                                        group.querySelector('.dplayer-setting-del-config').addEventListener('click', () => this.clear());
+                                    },
+                                    check(time) {
+                                        if (!this.config.enabled) return;
+                                        if (this.config.intro > 0 && time < this.config.intro && !this.hasSkippedIntro) {
+                                            dp.seek(this.config.intro);
+                                            dp.notice('已跳过片头');
+                                            this.hasSkippedIntro = true;
+                                        }
+                                        if (this.config.outro > 0 && time > this.config.outro && !this.hasSkippedOutro) {
+                                            dp.notice('已跳过片尾');
+                                            this.hasSkippedOutro = true;
+                                            if (dp.events) dp.events.trigger('ended');
+                                        }
+                                    }
+                                };
+
+                                // 监听播放器事件
+                                dp.on('timeupdate', () => {
+                                    if (dp.video && window.skipManager) window.skipManager.check(dp.video.currentTime);
+                                });
+
+                                dp.on('canplay', () => {
+                                    if (window.skipManager) window.skipManager.load();
+                                });
+
+                                // 初始加载配置
+                                window.skipManager.load();
+
+                                // 注入“下一集”按钮
+                                {
+                                    const iconsRight = dplayerContainer.querySelector('.dplayer-icons-right');
+                                    if (iconsRight && !iconsRight.querySelector('.dplayer-next-icon')) {
+                                        const nextBtnHtml = `
+                                            <div class="dplayer-icon dplayer-next-icon" data-balloon="下一集" data-balloon-pos="up">
+                                                <span class="dplayer-icon-content" style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">
+                                                    <i class="fas fa-step-forward" aria-hidden="true" style="font-size:18px;"></i>
+                                                </span>
+                                            </div>
+                                        `;
+                                        iconsRight.insertAdjacentHTML('afterbegin', nextBtnHtml);
+
+                                        const nextBtn = iconsRight.querySelector('.dplayer-next-icon');
+                                        if (nextBtn) {
+                                            nextBtn.addEventListener('click', () => {
+                                                this.playNextEpisode();
+                                            });
+                                        }
+                                    }
+                                }
 
                                 // 再次点击设置按钮时关闭设置菜单
                                 const settingIcon = dplayerContainer.querySelector('.dplayer-setting-icon');
@@ -5376,6 +5670,16 @@
                         // 恢复播放进度
                         let progressRestored = false;
                         dp.on('canplay', () => {
+                            // 💾 恢复倍速设置 (每次视频加载都检查)
+                            try {
+                                const savedSpeed = parseFloat(localStorage.getItem('dplayer_speed'));
+                                if (savedSpeed && !isNaN(savedSpeed) && dp.video) {
+                                    if (Math.abs(dp.video.playbackRate - savedSpeed) > 0.01) {
+                                        dp.speed(savedSpeed);
+                                    }
+                                }
+                            } catch (e) { }
+
                             if (progressRestored) return;
 
                             try {
@@ -5523,6 +5827,11 @@
                             if (movieName) {
                                 this.addToWatchHistory(movieName, poster, episodeName, duration, duration, this.currentGroup);
                             }
+
+                            // 自动播放下一集（非单曲循环模式下）
+                            if (!dp.loop) {
+                                this.playNextEpisode(true);
+                            }
                         });
 
                     } else {
@@ -5663,6 +5972,32 @@
                         setTimeout(() => {
                             this.autoRetryMessage = '';
                         }, 3000);
+                    }
+                },
+
+                // 播放下一集
+                playNextEpisode(auto = false) {
+                    if (!this.episodeList || this.episodeList.length === 0) return;
+
+                    const currentIndex = this.episodeList.findIndex(ep => ep.url === this.currentUrl);
+                    if (currentIndex < 0) return;
+
+                    if (currentIndex < this.episodeList.length - 1) {
+                        const nextEp = this.episodeList[currentIndex + 1];
+                        console.log('播放下一集:', nextEp.name);
+
+                        if (auto) {
+                            if (typeof dp !== 'undefined' && dp.notice) dp.notice(`即将播放下一集: ${nextEp.name}`, 3000);
+                        }
+
+                        this.play(nextEp.url);
+
+                        this.$nextTick(() => {
+                            const activeBtn = document.querySelector('.episode-btn.active');
+                            if (activeBtn) activeBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        });
+                    } else {
+                        if (typeof dp !== 'undefined' && dp.notice) dp.notice('已经是最后一集了');
                     }
                 }
             }
