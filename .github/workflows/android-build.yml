@@ -243,8 +243,7 @@ jobs:
             ### 📺 设备兼容性
             - ✅ 手机 (Android 5.0+)
             - ✅ 平板
-            - ✅ Android TV / 电视盒子
-            - ✅ 智能投影仪
+            - 📺 电视/盒子: 推荐使用电视浏览器访问网页版，兼容性更佳
             
             ### 🌐 内置服务器
             - 默认连接: `${{ github.event.inputs.server_url || 'https://ednovas.video' }}`
